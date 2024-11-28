@@ -1,0 +1,286 @@
+---
+title: "Companion file 1 for: "Towards a principled statistical workflow for the study of wildlife and environmental contaminants in the presence of method detection and quantification limits" "
+format: html
+---
+
+This document is the first companion file for "Towards a principled statistical workflow for the study of wildlife and environmental contaminants in the presence of method detection and quantification limits". Here, we dive deeper in the concepts discussed in the manuscript.
+
+```{r}
+library(tidyverse)
+library(brms)
+library(cmdstanr)
+library(tidybayes)
+set.seed(333)
+# Define and set the global theme
+custom_theme <- theme(
+  axis.line = element_line(linewidth = 2, lineend = "round"),
+  panel.grid = element_blank(),
+  panel.background = element_blank(),
+  axis.ticks = element_blank(),
+  axis.text = element_text(size = 14, face = "bold"),
+  axis.title = element_text(size = 16, face = "bold"),
+  legend.text = element_text(size = 12, face = "bold"),
+  legend.title = element_text(size = 14, face = "bold"),
+  plot.title = element_text(size = 17, face = "bold"),
+  plot.caption = element_text(face = "bold"),
+  strip.background = element_rect(fill = "white"),
+  strip.text = element_text(size = 12, face = "bold")
+)
+
+theme_set(custom_theme)
+```
+
+## Parameterizing the lognormal distribution
+The lognormal distribution has two parameters, here defined as a and b 
+
+Andrew MacDonald discusses moment matching for these two parameters in:
+https://discourse.mc-stan.org/t/lognormal-regression-and-moment-matching/26557 
+a
+ is the median of the lognormal distribution. Its also the mean of the normal distribution you’d get if you took the log of these lognormal values. 
+b
+ is the standard deviation of those values.
+
+Andrew provides functions to convert the mean and sd of a gaussian distribution to the a and b parameters
+
+```{r}
+calculate_a_lnorm <- function(mean, sd){
+
+  log(mean^2/sqrt(sd^2 + mean^2))
+
+}
+
+
+calculate_b_lnorm <- function(mean, sd){
+
+  sqrt(log(sd^2 / mean^2 + 1))
+
+}
+```
+
+We then want to see what parameters brms models when fitting a hurdle lognormal model. We will include censored observations with a low probability of zeros to reduce the possible bias induced.
+
+
+```{r}
+# Set simulation parameters
+n <- 2000          # Number of samples
+mean_resp <- 0.23  # Average on reponse scale
+sd_resp <- 0.06    # Standard devation on reponse scale
+p_zeros <- 0.1     # Probability of zero
+# Expected average including presence probability
+expected_resp <- mean_resp * (1 - p_zeros) 
+LOD <- 0.15        # Limit of detection
+LOQ <- 0.19        # Limit of quantification
+# Calculate a and b parameters of lognormal distribution
+a <- calculate_a_lnorm(mean_resp, sd_resp)
+b <- calculate_b_lnorm(mean_resp, sd_resp)
+# Generate simulated data
+tibble(
+  # Generate lognormal concentrations
+  conc = round(rlnorm(n, a, b),2),  
+  # Presence probability of 0.9
+  zeros = rbinom(n, prob = (1 - p_zeros), size = 1),  
+  # Final concentrations (including zeros)
+  Y = conc * zeros)  |>
+  mutate(
+    # format data
+    y_cen = case_when(
+    # Set values below LOD to LOD
+      Y < LOD ~ LOD,  
+    # Set values between LOD and LOQ to LOD
+      Y >= LOD & Y < LOQ ~ LOD,  
+    # Leave other values as is
+      TRUE ~ Y),  
+    # Create column for upper bound of interval censoring
+    upper_int_cens = ifelse(Y >= LOD & Y < LOQ, LOQ, Y), 
+    # Create column for censoring type
+    censoring = case_when(
+    # Left-censored
+      Y < LOD ~ "left",  
+    # Interval-censored
+      Y >= LOD & Y < LOQ ~ "interval",  
+    # Fully observed
+      TRUE ~ "none")  
+) -> censored_data   
+```
+
+We will fit a model to the data using the default {brms} priors for now just to see what parameters are modeled and on what scale
+
+
+```{r, echo = TRUE}
+bf_intercept <- bf(y_cen | cens(censoring , upper_int_cens) ~ 1, 
+                                                         hu ~ 1, 
+                           family = hurdle_lognormal(link = "identity", 
+                                                     link_sigma = "log", 
+                                                     link_hu = "logit")
+)
+
+mod_intercept <- brms::brm(formula = bf_intercept,
+                 data = censored_data,
+                 iter = 2000, warmup = 1000, chains = 4, cores = 4,
+                 seed = 333,
+                 threads = threading(4, grainsize = 100),
+                 backend = "cmdstanr")
+
+tidybayes::epred_rvars(mod_intercept, 
+            dpar = TRUE, 
+            newdata = tibble(.rows = 1)) -> epred_intercept
+
+epred_intercept
+```
+
+.epred seems similar to 'expected_resp'
+mu = 'a' parameter
+hu = 'p_zeros'
+sigma = 'b' parameter
+
+epred_rvars() thus does not give us the expected average of the observations without zeros. We can obtain that value from .epred/(1 - hu).
+To get the sd of the observations without zeros, we can play around with the equation for parameter 'a' = log(mean^2/sqrt(sd^2 + mean^2)) to get
+sd = mean * sqrt(mean^2 - exp(2a) / exp(2a))
+
+```{r, echo = TRUE}
+calculate_exp_mean <- function(epred, hu){
+
+    epred / (1 - hu)
+
+}
+
+calculate_exp_sd<- function(mean, a){
+
+    mean * sqrt((mean^2 - exp(2*a)) / exp(2*a))
+
+}
+
+# calculate quantities, pivot longer and visualize
+epred_intercept |>
+    mutate(exp_mean = calculate_exp_mean(epred = .epred, hu = hu),
+           exp_sd = calculate_exp_sd(mean = exp_mean, a = mu)) |>
+    pivot_longer(everything()) |>
+    mutate(true_value = case_when(
+        name == ".epred" ~ expected_resp,
+        name == "mu" ~ a,
+        name == "hu" ~ p_zeros,
+        name == "sigma" ~ b,
+        name == "exp_mean" ~ mean_resp,
+        name == "exp_sd" ~ sd_resp
+    ),
+    name = case_when(
+        name == ".epred" ~ "E[Y]",
+        name == "mu" ~ "a",
+        name == "hu" ~ "zero-probability",
+        name == "sigma" ~ "b",
+        name == "exp_mean" ~ "E[Y|presence]",
+        name == "exp_sd" ~ "sd(Y)|presence"
+    )) -> epred_intercept_long
+    
+    
+ggplot(data = epred_intercept_long) +
+    stat_slabinterval(aes(xdist = value, y = 250)) +
+    geom_vline(aes(xintercept = true_value), 
+               color = "red", 
+               linewidth = 2, 
+               lineend = "round") +
+    facet_wrap(~name, scales = "free") +
+    theme(axis.line.y = element_blank(),
+          axis.text.y = element_blank(),
+          axis.title.y = element_blank())
+```
+
+As we can see here, {brms} models the parameters a & b for the concentration. When using epred_ to get the expected parameter values, we get values for a and b that are hard to interpret but can be converted to the expected values of the mean and sd of the samples in which contaminants are present.
+
+We must now think of priors for the a,b and hu parameters. As the a and b parameters are counter-intuitive, we can think of priors for the mean and sd of the observations and convert those priors to the a and b parameters. 
+
+In this case, we know the true values of the parameters but in a real-world example, we would not. We can set up priors that are very wide for now. We may think that mean_resp could lie anywhere between 0 and 40, for example. A prior representing this belief could be Normal(20,10). We may also think that sd_resp is strictly positive and is about 10 on average. A prior representing this belief could be Exponential(0.1) where the mean of the exponential distribution is 1/0.1 = 10.
+
+
+```{r}
+tibble(
+    prior_mean = rnorm(n, 20, 10),
+    prior_sd = rexp(n,0.1),
+    prior_a = calculate_a_lnorm(mean = prior_mean, sd = prior_sd),
+    prior_b = calculate_b_lnorm(mean = prior_mean, sd = prior_sd)
+) |>
+    pivot_longer(everything()) |>
+    mutate(true_value = case_when(
+        name == "prior_mean" ~ mean_resp,
+        name == "prior_sd" ~ sd_resp,
+        name == "prior_a" ~ a,
+        name == "prior_b" ~ b
+    )) |>
+    ggplot(aes(x = value)) +
+    geom_density() +
+    geom_vline(aes(xintercept = true_value), 
+               color = "red", 
+               linewidth = 2, 
+               lineend = "round") +
+    facet_wrap(~name, scales = "free")+
+    theme(axis.line.y = element_blank(),
+          axis.text.y = element_blank(),
+          axis.title.y = element_blank())
+    
+```
+
+
+To make our priors on a and b even more vague, we could choose a N(0, 2.5) for a and Exponential(1) for b.
+
+For the hu parameter, we can set a wide prior of Normal(0,2) which on the probability scale is centered on 50% and goes near 0 and 100
+
+Let's specify a model with these priors
+
+```{r}
+get_prior(bf_intercept, data = censored_data)
+
+priors_intercept <- c(
+    prior(normal(1, 2), class = "Intercept"),
+    prior(normal(0, 1), class = "Intercept", dpar = "hu"),
+    prior(exponential(3), class = "sigma")
+)
+
+
+prior_sim_intercept <- brms::brm(formula = bf_intercept,
+                 data = censored_data,
+                 prior = priors_intercept,
+                 sample_prior = "only",
+                 iter = 2000, warmup = 1000, chains = 4, cores = 4,
+                 seed = 333,
+                 threads = threading(4, grainsize = 100),
+                 backend = "cmdstanr")
+
+print(prior_sim_intercept)
+
+# Visualize expectations
+tidybayes::epred_rvars(prior_sim_intercept, 
+            dpar = TRUE, 
+            newdata = tibble(.rows = 1)) |>
+    mutate(exp_mean = calculate_exp_mean(epred = .epred, hu = hu),
+           exp_sd = calculate_exp_sd(mean = exp_mean, a = mu)) |>
+    pivot_longer(everything()) |>
+    mutate(true_value = case_when(
+        name == ".epred" ~ expected_resp,
+        name == "mu" ~ a,
+        name == "hu" ~ p_zeros,
+        name == "sigma" ~ b,
+        name == "exp_mean" ~ mean_resp,
+        name == "exp_sd" ~ sd_resp
+    ),
+    name = case_when(
+        name == ".epred" ~ "E[Y]",
+        name == "mu" ~ "a",
+        name == "hu" ~ "zero-probability",
+        name == "sigma" ~ "b",
+        name == "exp_mean" ~ "E[Y|presence]",
+        name == "exp_sd" ~ "sd(Y)|presence"
+    )) |>
+    ggplot() +
+    stat_slabinterval(aes(xdist = value, y = 250)) +
+    geom_vline(aes(xintercept = true_value), 
+               color = "red", 
+               linewidth = 2, 
+               lineend = "round") +
+    facet_wrap(~name, scales = "free") +
+    theme(axis.line.y = element_blank(),
+          axis.text.y = element_blank(),
+          axis.title.y = element_blank())
+```
+
+After playing around with some values, we can choose these priors as they appear wide enough to be vaguely informative. This may not be an optimal approach however. It is also pertinent to simulate observations from this model and compare them to our data.
+

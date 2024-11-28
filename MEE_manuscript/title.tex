@@ -1,0 +1,19 @@
+$if(title)$
+\title{$title$}
+$endif$
+
+$if(authors)$
+\author{%
+$for(authors)$%
+$authors.name$\\ %
+$authors.affiliation$\\ %
+\href{https://orcid.org/$authors.orcid$}{\texttt{ORCID: $authors.orcid$}}%
+$if(authors.roles)$\\ $authors.roles$$endif$%
+$if(authors.corresponding)$\\ {\textasteriskcentered}corresponding author: \href{mailto:$authors.email$}{$authors.email$}$endif$%
+$sep$\and %
+$endfor$%
+}
+$endif$
+
+\date{}
+\maketitle

@@ -1,0 +1,224 @@
+---
+title: "Companion file 2 for: "Towards a principled statistical workflow for the study of wildlife and environmental contaminants in the presence of method detection and quantification limits" "
+format: html
+---
+In this document, we code custom prior/posterior predictive checks for hurdle left- and interval-censored models. The goal is to bin the predicted number of observations into zeros, left censored, interval censored, quantified categories. For predictions above LOQ (quantified concentrations), we will also plot the probability density and cumulative probability density functions. In all cases, we will compare the predicted observations to the observed ones to assess model fit.
+
+First, we will simulate some hurdle left and interval censored lognormal data.
+
+```{r}
+library(tidyverse)
+library(brms)
+library(cmdstanr)
+library(tidybayes)
+library(patchwork)
+set.seed(333)
+# Define and set the global theme
+custom_theme <- theme(
+  axis.line = element_line(linewidth = 2, lineend = "round"),
+  panel.grid = element_blank(),
+  panel.background = element_blank(),
+  axis.ticks = element_blank(),
+  axis.text = element_text(size = 14, face = "bold"),
+  axis.title = element_text(size = 16, face = "bold"),
+  legend.text = element_text(size = 12, face = "bold"),
+  legend.title = element_text(size = 14, face = "bold"),
+  plot.title = element_text(size = 17, face = "bold"),
+  plot.caption = element_text(face = "bold"),
+  strip.background = element_rect(fill = "white"),
+  strip.text = element_text(size = 12, face = "bold")
+)
+
+theme_set(custom_theme)
+
+calculate_a_lnorm <- function(mean, sd){
+
+  log(mean^2/sqrt(sd^2 + mean^2))
+
+}
+
+
+calculate_b_lnorm <- function(mean, sd){
+
+  sqrt(log(sd^2 / mean^2 + 1))
+
+}
+```
+
+
+
+```{r}
+# Set simulation parameters
+n <- 2000          # Number of samples
+mean_resp <- 0.23  # Average on reponse scale
+sd_resp <- 0.06    # Standard devation on reponse scale
+p_zeros <- 0.1     # Probability of zero
+# Expected average including presence probability
+expected_resp <- mean_resp * (1 - p_zeros) 
+LOD <- 0.15        # Limit of detection
+LOQ <- 0.19        # Limit of quantification
+# Calculate a and b parameters of lognormal distribution
+a <- calculate_a_lnorm(mean_resp, sd_resp)
+b <- calculate_b_lnorm(mean_resp, sd_resp)
+# Generate simulated data
+tibble(
+  # Generate lognormal concentrations
+  conc = round(rlnorm(n, a, b),2),  
+  # Presence probability of 0.9
+  zeros = rbinom(n, prob = (1 - p_zeros), size = 1),  
+  # Final concentrations (including zeros)
+  Y = conc * zeros)  |>
+  mutate(
+    # format data
+    y_cen = case_when(
+    # Set values below LOD to LOD
+      Y < LOD ~ LOD,  
+    # Set values between LOD and LOQ to LOD
+      Y >= LOD & Y < LOQ ~ LOD,  
+    # Leave other values as is
+      TRUE ~ Y),  
+    # Create column for upper bound of interval censoring
+    upper_int_cens = ifelse(Y >= LOD & Y < LOQ, LOQ, Y), 
+    # Create column for censoring type
+    censoring = case_when(
+    # Left-censored
+      Y < LOD ~ "left",  
+    # Interval-censored
+      Y >= LOD & Y < LOQ ~ "interval",  
+    # Fully observed
+      TRUE ~ "none")  
+) -> censored_data
+```
+
+Model
+
+```{r}
+bf_intercept <- bf(y_cen | cens(censoring , upper_int_cens) ~ 1, 
+                                                         hu ~ 1, 
+                           family = hurdle_lognormal(link = "identity", 
+                                                     link_sigma = "log", 
+                                                     link_hu = "logit")
+)
+
+mod_intercept <- brms::brm(formula = bf_intercept,
+                 data = censored_data,
+                 iter = 2000, warmup = 1000, chains = 4, cores = 4,
+                 seed = 333,
+                 threads = threading(4, grainsize = 100),
+                 backend = "cmdstanr")
+```
+
+We now want to extract predicted values from this model to compare with the observed values. 
+
+
+```{r}
+censored_data |>
+    # add predicted obervations
+    tidybayes::add_predicted_draws(mod_intercept, ndraws = 100) |> 
+    # creates a grouped tibble so we need to ungroup
+    ungroup() |>
+    # now we bin values into < LOD, > LOD <= LOQ, and quantified
+    mutate(
+    pred_type = case_when(
+    # Left-censored
+      .prediction < LOD ~ "left",  
+    # Interval-censored
+      .prediction  >= LOD & .prediction  < LOQ ~ "interval",    
+    # Fully observed
+      TRUE ~ "none" 
+    ))  -> predicted_values
+```
+
+Now that we have predicted values in their respective bins, we can start comparing them to the actual observations.
+
+First, we count the number of observations in each bin
+
+```{r}
+predicted_values |>
+    # Each actual observation is gets 100 draws from the posterior 
+    # so we summarize by draw
+    group_by(.draw) |>
+    # Count the number of predicted obervations per bin
+    count(pred_type) |>
+    ungroup() -> binned_predictions
+
+# Do the same for the actual data
+
+censored_data |>
+    count(censoring) -> binned_observations
+```
+
+Plot bins
+
+```{r}
+ggplot() + 
+    geom_col(data = binned_observations, 
+            aes(x = factor(censoring, levels = c("left", "interval", "none")), 
+                y = n), 
+            fill  = "darkblue") + 
+    stat_pointinterval(data = binned_predictions, 
+                       aes(x = factor(pred_type, levels = c("left", "interval", "none")), 
+                           y = n), 
+                       color = "lightblue", size = 1) + 
+    labs(x = NULL, y = "n observations")
+```
+
+We can see that the model puts a bit too many observations in the interval bin but the actual number of observations in this bin is within the 95% interval 
+
+While this is informative, we also want to compare the distribution of quantified values.
+
+
+```{r}
+ggplot() +
+    geom_density(data = predicted_values |> filter(pred_type == "none"), 
+                 aes(x = .prediction, group = .draw), 
+                 color = "lightblue", 
+                 trim = TRUE) +
+    geom_density(data = censored_data |> filter(censoring == "none"), 
+                 aes(x = y_cen), 
+                 color = "darkblue", 
+                 linewidth = 1, 
+                 trim = TRUE) +
+    labs(x = "quantified values")
+```
+
+Even though the model recovers the parameters well, the posterior predictive check is not optimal.
+
+We can also use the ecdf as another version of the ppc
+
+
+```{r}
+ggplot() +
+    stat_ecdf(data = predicted_values |> filter(pred_type == "none"),
+              aes(x = .prediction, group = .draw), 
+              color = "lightblue") + 
+    stat_ecdf(data  = censored_data |> filter(censoring == "none"), 
+              aes(x = y_cen), 
+              color = "darkblue", 
+              linewidth = 1) +
+    labs(x = "quantified values")
+```
+
+We might also be interested in the tails of the distribution. So we will compare the 95th percentile.
+
+
+```{r}
+ggplot() +
+    geom_vline(data = censored_data |> 
+                      filter(censoring == "none") |>
+                      summarise(perc_95 = quantile(y_cen, 0.95)),
+    aes(xintercept = perc_95), 
+    linewidth = 1, 
+    color = "darkblue") +
+    stat_pointinterval(data = predicted_values |> 
+                              filter(pred_type == "none") |>
+                              group_by(.draw) |>
+                              summarise(perc_95 = quantile(y_cen, 0.95)) |>
+                              ungroup(), 
+                       aes(x = perc_95), 
+                       color = "lightblue")
+```
+
+It seems like the predicted 95th is capped at 0.34 which may be due to the default brms priors. We will see how these diagnostics change in Companion File 1 when playing around with different priors. 
+
+We have explored here three diagnostic methods to assess model fit. Companion File 3 will group these diagnostics into a function that can be applied to models that include more than one contaminant.

@@ -1,0 +1,601 @@
+---
+title: "Companion file 3 for: "Towards a principled statistical workflow for the study of wildlife and environmental contaminants in the presence of method detection and quantification limits""
+format: html
+---
+
+In this document, we will make a function for the prior/posterior predictive checks elaborated in Companion file 2. We want to extend these for cases with multiple pesticides if needed.
+
+```{r}
+library(tidyverse)
+library(brms)
+library(cmdstanr)
+library(tidybayes)
+library(priorsense)
+library(patchwork)
+
+
+
+```
+
+
+Load model
+THIS WILL PROBABLY CHANGE
+```{r}
+test_long_data <- read_rds(file = "test_long_data.Rda")
+
+dl <- test_long_data %>%
+  mutate(lat = as.numeric(lat), lon = as.numeric(lon)) %>%
+  rowwise() %>%
+  mutate(tot_wat_1 = Water.1000 + Wetland.1000) %>%
+  ungroup() %>%
+  mutate(scl_water = scale(tot_wat_1),
+         year = as.factor(year),
+         farm_ID = as.factor(farm_ID),
+         pesticide = as.factor(pesticide))
+
+dl_sub <- dl %>%
+  mutate(pesticide = as.character(pesticide)) %>%
+  filter(!pesticide %in% c("bentazon", "carbaryl", "parathion", "piperonyl.butoxide"))
+
+dl_sub2 <- subset(dl_sub, pesticide != "one.naphthol")
+
+dl_all <- dl %>%
+  mutate(pesticide = as.character(pesticide)) %>%
+  subset( pesticide != "one.naphthol") %>%
+  mutate(pesticide = as.factor(pesticide))
+
+bf_pest_agri_wat_mu_hu <- bf(y_cen | cens(censoring, upper_int) ~ 0 +  
+                           pesticide*Comp.1*Comp.2 + 
+                           pesticide*Comp.1*scl_water + 
+                           (0 +  pesticide | farm_ID) + (1|year) ,
+                         hu  ~ 0 +  
+                           pesticide*Comp.1*Comp.2 + 
+                           pesticide*Comp.1*scl_water + 
+                           (0 + pesticide | farm_ID) + (1|year) ,
+                         sigma ~ 1 + (1|pesticide) ,
+                         family = "hurdle_lognormal")
+
+
+prior_pest_agri_wat_mu_hu_all <- c(
+  # Population effects
+  ## mu
+  ### Atrazine
+  prior(normal(0,2), class = "b", 
+        coef = "pesticideatrazine"),
+  prior(normal(0,1), class = "b",
+        coef = "Comp.1"),
+  prior(normal(0,1), class = "b", 
+        coef = "Comp.2"),
+  prior(normal(0,1), class = "b", 
+        coef = "scl_water"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "Comp.1:Comp.2"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "Comp.1:scl_water"),
+  ### Bentazon
+  prior(normal(0,2), class = "b", 
+        coef = "pesticidebentazon"),
+  prior(normal(0,1), class = "b",
+        coef = "pesticidebentazon:Comp.1"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidebentazon:Comp.2"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidebentazon:scl_water"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidebentazon:Comp.1:Comp.2"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidebentazon:Comp.1:scl_water"),
+  ### Carbaryl
+  prior(normal(0,2), class = "b", 
+        coef = "pesticidecarbaryl"),
+  prior(normal(0,1), class = "b",
+        coef = "pesticidecarbaryl:Comp.1"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidecarbaryl:Comp.2"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidecarbaryl:scl_water"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidecarbaryl:Comp.1:Comp.2"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidecarbaryl:Comp.1:scl_water"),
+  ### Clothianidin
+  prior(normal(0,2), class = "b", 
+        coef = "pesticideclothianidin"),
+  prior(normal(0,1), class = "b",
+        coef = "pesticideclothianidin:Comp.1"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticideclothianidin:Comp.2"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticideclothianidin:scl_water"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticideclothianidin:Comp.1:Comp.2"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticideclothianidin:Comp.1:scl_water"),
+  ### Imazethapyr
+  prior(normal(0,2), class = "b", 
+        coef = "pesticideimazethapyr"),
+  prior(normal(0,1), class = "b",
+        coef = "pesticideimazethapyr:Comp.1"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticideimazethapyr:Comp.2"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticideimazethapyr:scl_water"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticideimazethapyr:Comp.1:Comp.2"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticideimazethapyr:Comp.1:scl_water"),
+  ### Metolachlor
+  prior(normal(0,2), class = "b", 
+        coef = "pesticidemetolachlor"),
+  prior(normal(0,1), class = "b",
+        coef = "pesticidemetolachlor:Comp.1"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidemetolachlor:Comp.2"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidemetolachlor:scl_water"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidemetolachlor:Comp.1:Comp.2"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidemetolachlor:Comp.1:scl_water"),
+  ### Parathion
+  prior(normal(0,2), class = "b", 
+        coef = "pesticideparathion"),
+  prior(normal(0,1), class = "b",
+        coef = "pesticideparathion:Comp.1"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticideparathion:Comp.2"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticideparathion:scl_water"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticideparathion:Comp.1:Comp.2"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticideparathion:Comp.1:scl_water"),
+  ### Piperonyl.butoxide
+  prior(normal(0,2), class = "b", 
+        coef = "pesticidepiperonyl.butoxide"),
+  prior(normal(0,1), class = "b",
+        coef = "pesticidepiperonyl.butoxide:Comp.1"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidepiperonyl.butoxide:Comp.2"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidepiperonyl.butoxide:scl_water"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidepiperonyl.butoxide:Comp.1:Comp.2"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidepiperonyl.butoxide:Comp.1:scl_water"),
+  ### Thiabendazole
+  prior(normal(0,2), class = "b", 
+        coef = "pesticidethiabendazole"),
+  prior(normal(0,1), class = "b",
+        coef = "pesticidethiabendazole:Comp.1"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidethiabendazole:Comp.2"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidethiabendazole:scl_water"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidethiabendazole:Comp.1:Comp.2"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidethiabendazole:Comp.1:scl_water"),
+  ### Thiacloprid
+  prior(normal(0,2), class = "b", 
+        coef = "pesticidethiacloprid"),
+  prior(normal(0,1), class = "b",
+        coef = "pesticidethiacloprid:Comp.1"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidethiacloprid:Comp.2"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidethiacloprid:scl_water"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidethiacloprid:Comp.1:Comp.2"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidethiacloprid:Comp.1:scl_water"),
+  ### Thiamethoxam
+  prior(normal(0,2), class = "b", 
+        coef = "pesticidethiamethoxam"),
+  prior(normal(0,1), class = "b",
+        coef = "pesticidethiamethoxam:Comp.1"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidethiamethoxam:Comp.2"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidethiamethoxam:scl_water"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidethiamethoxam:Comp.1:Comp.2"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidethiamethoxam:Comp.1:scl_water"),
+  ## hu
+  ###Atrazine
+  prior(normal(2,1), class = "b", 
+        coef = "pesticideatrazine", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "Comp.1", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "Comp.2", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "scl_water", dpar = "hu"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "Comp.1:Comp.2", dpar = "hu"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "Comp.1:scl_water", dpar = "hu"),
+  ### Bentazon
+  prior(normal(2,1), class = "b", 
+        coef = "pesticidebentazon", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidebentazon:Comp.1", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidebentazon:Comp.2", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidebentazon:scl_water", dpar = "hu"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidebentazon:Comp.1:Comp.2", dpar = "hu"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidebentazon:Comp.1:scl_water", dpar = "hu"),
+  ### Carbaryl
+  prior(normal(2,1), class = "b", 
+        coef = "pesticidecarbaryl", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidecarbaryl:Comp.1", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidecarbaryl:Comp.2", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidecarbaryl:scl_water", dpar = "hu"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidecarbaryl:Comp.1:Comp.2", dpar = "hu"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidecarbaryl:Comp.1:scl_water", dpar = "hu"),
+  ### Clothianidin
+  prior(normal(2,1), class = "b", 
+        coef = "pesticideclothianidin", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticideclothianidin:Comp.1", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticideclothianidin:Comp.2", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticideclothianidin:scl_water", dpar = "hu"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticideclothianidin:Comp.1:Comp.2", dpar = "hu"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticideclothianidin:Comp.1:scl_water", dpar = "hu"),
+  ### Imazethapyr
+  prior(normal(2,1), class = "b", 
+        coef = "pesticideimazethapyr", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticideimazethapyr:Comp.1", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticideimazethapyr:Comp.2", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticideimazethapyr:scl_water", dpar = "hu"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticideimazethapyr:Comp.1:Comp.2", dpar = "hu"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticideimazethapyr:Comp.1:scl_water", dpar = "hu"),
+  ### Metolachlor
+  prior(normal(2,1), class = "b", 
+        coef = "pesticidemetolachlor", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidemetolachlor:Comp.1", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidemetolachlor:Comp.2", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidemetolachlor:scl_water", dpar = "hu"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidemetolachlor:Comp.1:Comp.2", dpar = "hu"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidemetolachlor:Comp.1:scl_water", dpar = "hu"),
+  ### Parathion
+  prior(normal(2,1), class = "b", 
+        coef = "pesticideparathion", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticideparathion:Comp.1", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticideparathion:Comp.2", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticideparathion:scl_water", dpar = "hu"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticideparathion:Comp.1:Comp.2", dpar = "hu"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticideparathion:Comp.1:scl_water", dpar = "hu"),
+  ### Piperonyl.butoxide
+  prior(normal(2,1), class = "b", 
+        coef = "pesticidepiperonyl.butoxide", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidepiperonyl.butoxide:Comp.1", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidepiperonyl.butoxide:Comp.2", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidepiperonyl.butoxide:scl_water", dpar = "hu"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidepiperonyl.butoxide:Comp.1:Comp.2", dpar = "hu"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidepiperonyl.butoxide:Comp.1:scl_water", dpar = "hu"),
+  ### Thiabendazole
+  prior(normal(2,1), class = "b", 
+        coef = "pesticidethiabendazole", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidethiabendazole:Comp.1", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidethiabendazole:Comp.2", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidethiabendazole:scl_water", dpar = "hu"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidethiabendazole:Comp.1:Comp.2", dpar = "hu"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidethiabendazole:Comp.1:scl_water", dpar = "hu"),
+  ### Thiacloprid
+  prior(normal(2,1), class = "b", 
+        coef = "pesticidethiacloprid", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidethiacloprid:Comp.1", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidethiacloprid:Comp.2", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidethiacloprid:scl_water", dpar = "hu"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidethiacloprid:Comp.1:Comp.2", dpar = "hu"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidethiacloprid:Comp.1:scl_water", dpar = "hu"),
+  ### Thiamethoxam
+  prior(normal(2,1), class = "b", 
+        coef = "pesticidethiamethoxam", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidethiamethoxam:Comp.1", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidethiamethoxam:Comp.2", dpar = "hu"),
+  prior(normal(0,1), class = "b", 
+        coef = "pesticidethiamethoxam:scl_water", dpar = "hu"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidethiamethoxam:Comp.1:Comp.2", dpar = "hu"),
+  prior(normal(0,0.5), class = "b", 
+        coef = "pesticidethiamethoxam:Comp.1:scl_water", dpar = "hu"),
+  
+  # Sigma
+  prior(normal(-1,1), class = "Intercept", dpar = "sigma"),
+  # Hierarchical effects
+  prior(exponential(2), class = "sd"),
+  prior(exponential(3), class = "sd", dpar = "hu"),
+  prior(exponential(3), class = "sd", dpar = "sigma"),
+  prior(lkj(2), class = "cor")
+)
+
+mod_pest_agri_wat_mu_hu_all <- brm(data = dl_all,
+           formula = bf_pest_agri_wat_mu_hu ,
+           prior = prior_pest_agri_wat_mu_hu_all ,
+           iter = 15000, warmup = 2000, chains = 4, cores = 4,
+           threads = threading(4, grainsize = 100),
+           backend = "cmdstanr",
+           control = list(adapt_delta = 0.99),
+           file = "mod_pest_agri_wat_mu_hu_all")
+
+
+```
+
+
+We will build the function piece by piece
+
+Function to generate predictions, bin them by censoring category, 
+```{r}
+ppc_predict <- function(data,            # Data used in model
+                        model,           # model
+                        draws = 100,     # number of posterior draws
+                        re_form,         # Hierarchical effects included
+                        by_cont = TRUE,  # Predictions by contaminant
+                        cont_col,        # Column for contaminant IDs
+                        cens_col,        # Column in data specifying censoring type
+                        y                # Column of (censored) observations
+                        ) {
+
+preds <- data |>
+    # add predicted obervations
+    tidybayes::add_predicted_draws(model, ndraws = draws, re_formula = re_form) |> 
+    # creates a grouped tibble so we need to ungroup
+    ungroup() |>
+    # now we bin values into < LOD, > LOD <= LOQ, and quantified
+    mutate(
+    pred_type = case_when(
+    # Left-censored
+      .prediction < LOD ~ "left",  
+    # Interval-censored
+      .prediction  >= LOD & .prediction  < LOQ ~ "interval",    
+    # Fully observed
+      TRUE ~ "none" 
+    )) 
+
+if (by_cont == TRUE) {
+
+  # Predictions
+  ## Bin predictions by censoring type
+binned_preds <- preds |>
+    group_by({{ cont_col }}, .draw) |>
+    count(pred_type) |>
+    ungroup()
+    
+  ## Calculate 95th percentile for predictions
+perc_preds <- preds |>
+    group_by({{ cont_col }}, .draw) |>
+    summarize(perc_95 = quantile(.prediction, probs = 0.95)) |>
+    ungroup()
+
+  # Observations
+  ## Bin observations by censoring type
+binned_obs <- data |>
+    group_by({{ cont_col }}) |>
+    count({{cens_col}}) |>
+    ungroup()
+
+  ## Calculate 95th percentile for observations
+perc_obs <- data |>
+    group_by({{ cont_col }}) |>
+    summarize(perc_95 = quantile({{y}}, probs = 0.95, na.rm = TRUE)) |>
+    ungroup()
+
+
+# If there is only one contaminant
+ } else {
+
+# Predictions
+## Bin predictions by censoring type
+binned_preds <- preds |>
+    group_by(.draw) |>
+    count(pred_type) |>
+    ungroup()
+    
+## Calculate 95th percentile for predictions
+perc_preds <- preds 
+    group_by(.draw) |>
+    summarize(perc_95 = quantile(.prediction)) |>
+    ungroup()
+
+
+# Observations
+## Bin observations by censoring type
+binned_obs <- data |>
+    count({{cens_col}}) 
+
+## Calculate 95th percentile for observations
+perc_obs <- data |>
+    summarize(perc_95 = quantile({{y}}, probs = 0.95, na.rm = TRUE)) 
+ }
+
+# Print outputs for testing before incorporating in larger function 
+print(preds)
+print(binned_preds)
+print(perc_preds)
+print(binned_obs)
+print(perc_obs)
+}
+
+
+ppc_predict(data = dl_all, 
+            model = mod_pest_agri_wat_mu_hu_all,
+            re_form = ~ (0 +  pesticide | farm_ID) + (1|year) + (1|pesticide),
+            cont_col = pesticide,
+            cens_col = censoring,
+            y = y_cen)
+```
+
+
+Add density plot
+```{r}
+ppc_dens <- function(data,            # Data used in model
+                        model,           # model
+                        draws = 100,     # number of posterior draws
+                        re_form,         # Hierarchical effects included
+                        by_cont = TRUE,  # Predictions by contaminant
+                        cont_col,        # Column for contaminant IDs
+                        cens_col,        # Column in data specifying censoring type
+                        y,                # Column of (censored) observations
+                        limits = FALSE   # Include limits for density or ecdf
+                        ) {
+
+preds <- data |>
+    # add predicted obervations
+    tidybayes::add_predicted_draws(model, ndraws = draws, re_formula = re_form) |> 
+    # creates a grouped tibble so we need to ungroup
+    ungroup() |>
+    # now we bin values into < LOD, > LOD <= LOQ, and quantified
+    mutate(
+    pred_type = case_when(
+    # Left-censored
+      .prediction < LOD ~ "left",  
+    # Interval-censored
+      .prediction  >= LOD & .prediction  < LOQ ~ "interval",    
+    # Fully observed
+      TRUE ~ "none" 
+    )) 
+
+if (by_cont == TRUE) {
+
+  # Predictions
+  ## Bin predictions by censoring type
+binned_preds <- preds |>
+    group_by({{ cont_col }}, .draw) |>
+    count(pred_type) |>
+    ungroup()
+    
+  ## Calculate 95th percentile for predictions
+perc_preds <- preds |>
+    group_by({{ cont_col }}, .draw) |>
+    summarize(perc_95 = quantile(.prediction, probs = 0.95)) |>
+    ungroup()
+
+  # Observations
+  ## Bin observations by censoring type
+binned_obs <- data |>
+    group_by({{ cont_col }}) |>
+    count({{cens_col}}) |>
+    ungroup()
+
+  ## Calculate 95th percentile for observations
+perc_obs <- data |>
+    group_by({{ cont_col }}) |>
+    summarize(perc_95 = quantile({{y}}, probs = 0.95, na.rm = TRUE)) |>
+    ungroup()
+
+
+# If there is only one contaminant
+ } else {
+
+# Predictions
+## Bin predictions by censoring type
+binned_preds <- preds |>
+    group_by(.draw) |>
+    count(pred_type) |>
+    ungroup()
+    
+## Calculate 95th percentile for predictions
+perc_preds <- preds 
+    group_by(.draw) |>
+    summarize(perc_95 = quantile(.prediction, probs = 0.95)) |>
+    ungroup()
+
+
+# Observations
+## Bin observations by censoring type
+binned_obs <- data |>
+    count({{cens_col}}) 
+
+## Calculate 95th percentile for observations
+perc_obs <- data |>
+    summarize(perc_95 = quantile({{y}}, probs = 0.95, na.rm = TRUE)) 
+ }
+
+# Print outputs for testing before incorporating in larger function 
+print(preds)
+print(binned_preds)
+print(perc_preds)
+print(binned_obs)
+print(perc_obs)
+
+dens_plot <- function(binned_obs, cat_preds, pred_quant, obs_quant, pesticide, limits = FALSE){
+  plot_binned <- ggplot() + 
+    geom_col(data = binned_obs, 
+        aes(x = {{cens_col}}, y = n), 
+        fill  = "darkblue")+ 
+    stat_pointinterval(data = binned_preds, 
+        aes(x = pred_type, y = n), 
+        color = "lightblue", size = 1) + 
+    theme_classic() +
+    labs(x = NULL, y = "n observations")
+  
+  plot_quant <- ggplot() +
+    geom_density(data = preds |>
+                filter(pred_type == "none"), 
+        aes(x = .prediction, group = .draw), 
+        color = "lightblue", 
+        trim = TRUE) +
+    geom_density(data = data |>
+                filter({{cens_col}} == "none"), 
+        aes(x = {{y}}), 
+        color = "darkblue", 
+        linewidth = 1, 
+        trim = TRUE) +
+    theme_classic() + labs(x = "quantified values") 
+  
+  if(limits == TRUE){
+    plot_quant <- plot_quant + coord_cartesian(xlim = c(0, max(select(obs_quant, y_cen) %>% drop_na(y_cen))))
+  }
+  
+  plot_cat + plot_quant + plot_layout(widths = c(1, 3)) + plot_annotation(title = paste(pesticide))
+  
+}
+}
+```
