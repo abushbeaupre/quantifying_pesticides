@@ -116,7 +116,7 @@ A measure that is often of interest is the probability of exposure that an envir
 
 ### Proposed general statistical framework
 
-Thus far, we have highlighted four major characteristics of contamination concentration data as illustrated through a simulated data distribution in @fig-datagen. First, there are data that were properly quantified and are thus observed (ie non-censored; purple part of distribution). These observations describe the right tail of the distribution unambiguously. Second, we have observations that lie between the LOD and LOQ (ie interval-censored; gold part of distribution). Such data are ambiguous concerning their exact values but contain valuable information; we know what portion of the distribution within which they reside. Lastly, we have values below the LOD (left-censored; red part of distribution) which can be further characterised into zero-values and values between zero and the LOD. From the proportion of values located at zero, we may derive an exposure probability and, from all values above zero, we may derive an average concentration when the contaminant is present. Furthermore, one may be inclined to calculate a “overall” average thus incorporating the concentration when present and the contamination probability which can be obtained by multiplying the two metrics. Although it may appear counter-intuitive at first, we show here that it is possible to obtain these metrics from data with such characteristics in a variety of conditions. We emphasise, however, that practitioners evaluate the adaptability of the proposed method to their specific use-case following the workflow provided.
+Thus far, we have highlighted four major characteristics of contaminant concentration data as illustrated through a simulated data distribution in @fig-datagen. First, there are data that were properly quantified and are thus observed (ie non-censored; purple part of distribution). These observations describe the right tail of the distribution unambiguously. Second, we have observations that lie between the LOD and LOQ (ie interval-censored; gold part of distribution). Such data are ambiguous concerning their exact values but contain valuable information; we know what portion of the distribution within which they reside. Lastly, we have values below the LOD (left-censored; red part of distribution) which can be further characterised into zero-values and values between zero and the LOD. From the proportion of values located at zero, we may derive an exposure probability and, from all values above zero, we may derive an average concentration when the contaminant is present. Furthermore, one may be inclined to calculate an “overall” average thus incorporating the concentration when present and the contamination probability which can be obtained by multiplying the two metrics. Although it may appear counter-intuitive at first, we show here that it is possible to obtain these metrics from data with such characteristics in a variety of conditions. We emphasise, however, that practitioners evaluate the adaptability of the proposed method to their specific use-case following the workflow provided.
 
 ```{r fig-datagen, echo=FALSE, fig.height=6, fig.width=10, fig.cap="Data generating process of wildlife and environment sample contamination. The plot shows the distribution of simulated contaminant concentrations with different censoring regions highlighted."}
 # Set simulation parameters
@@ -315,7 +315,27 @@ bf_intercept <- bf(y_cen | cens(censoring , upper_int_cens) ~ 1,
 )
 ```
 
-As with any Bayesian model, sensible priors for every model parameter must be specified. As the a and b parameters of the lognormal distribution are calculated from the mean and SD of the observations, it can seem counter-intuitive to conceive of probable values for them. Thus, we suggest first thinking about probable values of the mean and SD of the obervations and then converting these prior distributions into priors for the a and b parameters. Supplementary material #1 displays code to explore the impact of different values for the mean and SD of the observations on the a and b parameters. While choosing prior distributions for these parameters this way is a good starting point, an addition method in evaluating the appropriateness of model priors is to simulate observations from the prior model before it sees the data. We can then evaluate if the observations appear reasonable for our use case.
+## Prior specification
+As with any Bayesian model, sensible priors for every model parameter must be specified. As the a and b parameters of the lognormal distribution are calculated from the mean and SD of the observations, it can seem counter-intuitive to conceive of probable values for them. Thus, we suggest first thinking about probable values of the mean and SD of the obervations and then converting these prior distributions into priors for the a and b parameters. Supplementary material #1 displays code to explore the impact of different values for the mean and SD of the observations on the a and b parameters. While choosing prior distributions for these parameters this way is a good starting point, an addition method in evaluating the appropriateness of parameter priors is to simulate observations from the prior model before it incorporating the data. We can then evaluate if the observations appear reasonable for our use case.
+
+Prior predictive checks for both left and interval censored data are, to our knowledge, not implemented in commonly used model-diagnostic packages such as {bayesplot}. We propose three types of plots which compare the empirical density function (edf), empirical cumulative density function (ecdf) and 95th percentile of the data and predicted draws from the prior model (figs X, Y, Z, respectively). As seen in figures X & Y, we first compare the number of observations within each observation type (left-censored, interval-censored, quantified) between the data (columns) and predictions from a given number of draws from the prior model (point-intervals). This diagnostic informs on the proper binning of predicted observations within each section of the observed distribution. If the model is adequately specified, the number of observations from the data within each category should lie within the predicted point-intervals. Deviations from this expectation would indicate severe prior mis-specifications as the number of left-, interval- and non-censored observations are already defined in the model from the data. Next, in figures X & Y, we compare the edf and ecdf, respectively between the data and observations predicted from the prior model. Uninformative priors would thus predict a wide range of observations compared to the data. Finally, in figure Z, we compare the 95th percentile of the observed data and predicted observations. These diagnostic plots are developped in Supplemental Material 2 and extended in functions for models that can include multiple contaminants in Supplemental Material 3.
+
+## Add data
+
+### Priorsense
+### model diagnostics
+
+
+## Sensitivity analysis
+### conditions
+### results
+
+## Case Study
+### Methods
+### Results
+### Short discussion
+
+## Discussion
 
 
 
