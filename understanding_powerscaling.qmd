@@ -1,0 +1,88 @@
+---
+title: "Untitled"
+format: html
+---
+Here, I investigate the priorsense package to understand what are the repercutions of misspecifying priors
+
+```{r}
+library(brms)
+library(cmdstanr)
+library(rstan)
+library(priorsense)
+library(tidyverse)
+library(bayestestR)
+library(tidybayes)
+```
+
+Simulate data
+```{r}
+n <- 5
+mu <- 1000
+sigma <- 40
+
+tibble(
+    y = rnorm(n, mean = mu, sd = sigma)
+) -> dat
+
+
+ggplot(dat, aes(x = y)) +
+geom_density()
+```
+
+
+Define and run model
+```{r}
+bf_simple <- bf(y ~ 1, family = gaussian)
+
+get_prior(bf_simple, data = dat)
+
+prior_simple <- c(
+    prior(normal(400, 50), class = "Intercept"),
+    prior(exponential(0.5), class = "sigma")
+)
+
+mod_simple <- brm(formula = bf_simple,
+                  prior = prior_simple,
+                  data = dat, 
+                  sample_prior = "yes",
+                  chains = 1, iter = 1000, warmup = 200)
+print(mod_simple)
+mod_simple |> gather_rvars(Intercept, sigma) |>
+mutate(true_value = ifelse(.variable == "Intercept", mu, sigma)) |>
+ggplot(aes( xdist = .value)) + stat_slabinterval() + geom_vline(aes(xintercept = true_value)) + facet_wrap(~ .variable, scales = "free")
+
+
+# Extract posterior samples
+posterior_samples <- as_draws_df(mod_simple)
+
+# Extract prior samples
+prior_samples <- as_draws_df(mod_simple, variable = c("b_Intercept", "sigma"), sample_prior = TRUE)
+
+# Combine prior and posterior samples
+combined_samples <- bind_rows(
+  posterior_samples |> mutate(type = "Posterior"),
+  prior_samples |> mutate(type = "Prior")
+) |> as_tibble()
+
+# Visualize priors and posteriors
+combined_samples |>
+  pivot_longer(cols = b_Intercept:prior_sigma, names_to = ".variable", values_to = ".value") |>
+  filter(.variable != "Intercept") |>
+  mutate(type = ifelse(str_detect(.variable, "prior"), "Prior", "Posterior"),
+  .variable = ifelse(str_detect(.variable, "Intercept"), "Intercept", "sigma"),
+  true_value = ifelse(str_detect(.variable, "Intercept"), mu, sigma)) |>
+  ggplot(aes(x = .value, fill = type)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(aes(xintercept = true_value), linewidth = 1.5) +
+  facet_wrap(~ .variable, scales = "free") +
+  labs(title = "Priors and Posteriors", x = "Value", y = "Density") +
+  theme_minimal()
+
+powerscale_sensitivity(mod_simple)
+
+
+mod_simple$data
+```
+
+So these priors are misspecified and the powerscale function gives a message of prior-data conflict but inference is not altered... I think that if we build a model iteratively through simulations and that the full prior model "makes sense", we can probably do without powerscale checks.
+
